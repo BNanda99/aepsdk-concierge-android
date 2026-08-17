@@ -71,6 +71,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
+    implementation(platform("com.adobe.marketing.mobile:sdk-bom:3.8.0"))
     // brand concierge from project module
     implementation(project(":concierge"))
 
@@ -78,6 +79,8 @@ dependencies {
     implementation("com.adobe.marketing.mobile:edgeidentity:$mavenEdgeIdentityVersion")
     implementation("com.adobe.marketing.mobile:edgeconsent:$mavenEdgeConsentVersion")
 
+    implementation("com.adobe.marketing.mobile:lifecycle")
+    implementation("com.adobe.marketing.mobile:signal")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.11.0")

@@ -1,0 +1,75 @@
+[
+  {
+    "key": "default",
+    "label": "Default (Use the ECID from browser)",
+    "identityMap": null
+  },
+  {
+    "key": "sme-testing",
+    "label": "SME Testing (ECID 82352795736304068978970779883533863512)",
+    "identityMap": {
+      "ECID": [
+        {
+          "id": "82352795736304068978970779883533863512",
+          "primary": true
+        }
+      ]
+    }
+  },
+  {
+    "key": "marcus",
+    "label": "Marcus (Email marcus.chen@example.com)",
+    "identityMap": {
+      "ECID": [
+        {
+          "id": "40e65464365468788798089709801236267872"
+        }
+      ],
+      "Email": [
+        {
+          "id": "marcus.chen@example.com",
+          "primary": true
+        }
+      ]
+    }
+  },
+  {
+    "key": "amy",
+    "label": "Amy (Email amy.jackson@example.com)",
+    "identityMap": {
+      "ECID": [
+        {
+          "id": "40034614938164362686845987860980808678"
+        }
+      ],
+      "Email": [
+        {
+          "id": "amy.jackson@example.com",
+          "primary": true
+        }
+      ]
+    }
+  },
+  {
+    "key": "eric",
+    "label": "Eric (Email eric.carter@example.com)",
+    "identityMap": {
+      "ECID": [
+        {
+          "id": "36736797997104068908805707889087848557"
+        }
+      ],
+      "Email": [
+        {
+          "id": "eric.carter@example.com",
+          "primary": true
+        }
+      ]
+    }
+  },
+  {
+    "key": "custom",
+    "label": "Custom (manual namespace + value)",
+    "identityMap": null
+  }
+]

@@ -21,6 +21,7 @@ import androidx.lifecycle.viewModelScope
 import com.adobe.marketing.mobile.Event
 import com.adobe.marketing.mobile.MobileCore
 import com.adobe.marketing.mobile.concierge.ConciergeConstants
+import com.adobe.marketing.mobile.concierge.ConciergeStateRepository
 import com.adobe.marketing.mobile.concierge.ConciergeTrackingEvent
 import com.adobe.marketing.mobile.concierge.network.Citation
 import com.adobe.marketing.mobile.concierge.network.ConciergeConversationServiceClient
@@ -65,6 +66,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -325,6 +327,46 @@ class ConciergeChatViewModel : AndroidViewModel {
 
         // Initialize welcome card state based on config and user history
         checkAndShowWelcomeCard()
+
+        // Start a fresh conversation whenever the active profile (ECID override) changes.
+        observeProfileSwitches()
+    }
+
+    /**
+     * Observes ECID override changes from the state repository and clears the conversation
+     * when the active profile is switched, so a new profile never inherits the previous chat.
+     * The initial value is skipped so a reset is not triggered on ViewModel creation.
+     */
+    private fun observeProfileSwitches() {
+        viewModelScope.launch {
+            ConciergeStateRepository.instance.state
+                .map { it.identityMap }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    Log.debug(
+                        ConciergeConstants.EXTENSION_NAME,
+                        TAG,
+                        "Profile (ECID) changed; resetting conversation."
+                    )
+                    resetConversation()
+                }
+        }
+    }
+
+    /**
+     * Fully resets the conversation: clears messages, conversation ID, input, and returns
+     * the screen to its idle/welcome state.
+     */
+    private fun resetConversation() {
+        _messages.value = emptyList()
+        currentConversationId = null
+        responseStartedDispatched = false
+        _state.update { ChatScreenState.Idle() }
+        _inputState.update { UserInputState.Empty }
+        if (welcomeConfig.value.showWelcomeCard) {
+            _showWelcomeCard.value = true
+        }
     }
 
     /**

@@ -29,8 +29,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.adobe.marketing.mobile.concierge.ConciergeProfile
+import com.adobe.marketing.mobile.edge.identity.Identity
 import com.adobe.marketing.mobile.concierge.ui.chat.ConciergeChat
 import com.adobe.marketing.mobile.concierge.ui.chat.ConciergeChatViewModel
 import com.adobe.marketing.mobile.concierge.ui.theme.ConciergeTheme
@@ -56,8 +60,31 @@ fun MainScreen() {
     val context = LocalContext.current
 
     // Surfaces passed via ConciergeChat parameter
-    val surfaces = listOf( "web://brand-concierge-demo-stage.corp.ethos270-stage-va7.ethos.adobe.net/customer-pages/745F37C35E4B776E0A49421B@AdobeOrg/acom_m15/index.html")
+    val surfaces = listOf( "web://concierge-demo-stage.adobe.io/customer-pages/1F79539169209A100A49402F@AdobeOrg/sackings-demo/index.html")
     var selectedTheme by rememberSaveable { mutableStateOf("default") }
+
+    val profileOptions = remember { ProfileConfigLoader.load(context) }
+    var selectedProfile by rememberSaveable { mutableStateOf("default") }
+    var customNamespace by rememberSaveable { mutableStateOf("") }
+    var customValue by rememberSaveable { mutableStateOf("") }
+
+    // Applies a selected profile's identityMap to Concierge. "custom" waits for manual entry;
+    fun applyProfile(option: ProfileOption) {
+        when {
+            option.key == "custom" -> Unit
+            option.identityMap != null -> ConciergeProfile.setIdentityMap(option.identityMap)
+            else -> Identity.getExperienceCloudId { ecid ->
+                ConciergeProfile.setIdentityMap(
+                    ecid?.takeIf { it.isNotBlank() }
+                        ?.let { mapOf("ECID" to listOf(mapOf<String, Any>("id" to it))) }
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        profileOptions.firstOrNull { it.key == selectedProfile }?.let { applyProfile(it) }
+    }
     
     // Theme options
     val themeOptions = listOf(
@@ -115,7 +142,64 @@ fun MainScreen() {
                     themeOptions = themeOptions,
                     onThemeSelected = { selectedTheme = it }
                 )
-                
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Profile (identityMap) selector
+                ProfileSelector(
+                    selectedProfile = selectedProfile,
+                    profileOptions = profileOptions,
+                    onProfileSelected = { option ->
+                        selectedProfile = option.key
+                        applyProfile(option)
+                    }
+                )
+
+                // Manual namespace + value entry for the "custom" profile
+                if (selectedProfile == "custom") {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        OutlinedTextField(
+                            value = customNamespace,
+                            onValueChange = { customNamespace = it },
+                            label = { Text("Namespace (e.g. ECID, Email)") },
+                            singleLine = true,
+                            modifier = Modifier.width(280.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = customValue,
+                            onValueChange = { customValue = it },
+                            label = { Text("Identity value") },
+                            singleLine = true,
+                            modifier = Modifier.width(280.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                if (customNamespace.isNotBlank() && customValue.isNotBlank()) {
+                                    ConciergeProfile.setIdentityMap(
+                                        mapOf(
+                                            customNamespace.trim() to listOf(
+                                                mapOf<String, Any>("id" to customValue.trim(), "primary" to true)
+                                            )
+                                        )
+                                    )
+                                }
+                            },
+                            enabled = customNamespace.isNotBlank() && customValue.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5E35B1)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.width(280.dp)
+                        ) {
+                            Text("Apply Custom Identity", color = Color.White)
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(48.dp))
 
                 // Compose wrapper implementation button
@@ -198,6 +282,148 @@ data class ThemeOption(
     val name: String,
     val description: String
 )
+
+/**
+ * Profile (identityMap) selector component. Mirrors [ThemeSelector] and lets the user switch the
+ * identityMap that Concierge sends in its requests.
+ */
+@Composable
+fun ProfileSelector(
+    selectedProfile: String,
+    profileOptions: List<ProfileOption>,
+    onProfileSelected: (ProfileOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedOption = profileOptions.find { it.key == selectedProfile } ?: profileOptions[0]
+
+    Column(
+        modifier = Modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Select Profile (identityMap):",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF333333)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Box {
+            Button(
+                onClick = { expanded = !expanded },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White
+                ),
+                modifier = Modifier
+                    .width(280.dp)
+                    .height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFE0E0E0))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text(
+                            text = selectedOption.label,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF333333),
+                            maxLines = 2
+                        )
+                        Text(
+                            text = profileSubtitle(selectedOption),
+                            fontSize = 12.sp,
+                            color = Color(0xFF999999),
+                            maxLines = 1
+                        )
+                    }
+
+                    Icon(
+                        painter = painterResource(
+                            id = if (expanded)
+                                android.R.drawable.arrow_up_float
+                            else
+                                android.R.drawable.arrow_down_float
+                        ),
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = Color(0xFF666666),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            androidx.compose.material3.DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.width(280.dp)
+            ) {
+                profileOptions.forEach { option ->
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(
+                                    text = option.label,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (option.key == selectedProfile)
+                                        FontWeight.Bold
+                                    else
+                                        FontWeight.Normal,
+                                    color = if (option.key == selectedProfile)
+                                        Color(0xFF5E35B1)
+                                    else
+                                        Color(0xFF333333)
+                                )
+                                Text(
+                                    text = profileSubtitle(option),
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF999999)
+                                )
+                            }
+                        },
+                        onClick = {
+                            onProfileSelected(option)
+                            expanded = false
+                        },
+                        leadingIcon = {
+                            if (option.key == selectedProfile) {
+                                Icon(
+                                    painter = painterResource(android.R.drawable.checkbox_on_background),
+                                    contentDescription = "Selected",
+                                    tint = Color(0xFF5E35B1),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    )
+
+                    if (option != profileOptions.last()) {
+                        androidx.compose.material3.HorizontalDivider(
+                            color = Color(0xFFE0E0E0),
+                            thickness = 1.dp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Builds the small subtitle shown under a profile: the identity namespaces it will send,
+ * or a hint for the default / custom entries.
+ */
+private fun profileSubtitle(option: ProfileOption): String = when {
+    option.identityMap != null -> option.identityMap.keys.joinToString(", ")
+    option.key == "custom" -> "Manual entry"
+    else -> "EdgeIdentity default"
+}
 
 /**
  * Theme selector component with dropdown-style UI

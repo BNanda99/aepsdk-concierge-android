@@ -58,7 +58,7 @@ class ConciergeConversationServiceClientTest {
     private val testSurfaces = listOf("surface1", "surface2")
 
     private val testState = ConciergeState(
-        experienceCloudId = "test-ecid",
+        identityMap = mapOf("ECID" to listOf(mapOf("id" to "test-ecid"))),
         configurationReady = true,
         surfaces = testSurfaces,
         conciergeServer = "https://test-server.com",
@@ -888,7 +888,41 @@ class ConciergeConversationServiceClientTest {
 
         val requestBody = String(requestSlot.captured.body, StandardCharsets.UTF_8)
         assertTrue(requestBody.contains("\"ECID\""))
-        assertTrue(requestBody.contains("\"id\": \"test-ecid\""))
+        assertTrue(requestBody.contains("\"id\":\"test-ecid\""))
+    }
+
+    @Test
+    fun `sendFeedback uses the selected identityMap for a profile`() = runTest {
+        // Given a state with a full identityMap (selected profile)
+        val overriddenState = testState.copy(
+            identityMap = mapOf(
+                "ECID" to listOf(mapOf<String, Any>("id" to "override-ecid", "primary" to true)),
+                "Email" to listOf(mapOf<String, Any>("id" to "amy@example.com", "primary" to true))
+            )
+        )
+        every { mockStateRepository.state } returns MutableStateFlow(overriddenState)
+
+        val feedback = Feedback(
+            interactionId = "interaction-123",
+            feedbackType = FeedbackType.POSITIVE
+        )
+
+        val requestSlot = slot<NetworkRequest>()
+        val connection = mockk<HttpConnecting>(relaxed = true)
+        every { connection.responseCode } returns 200
+        every { networkService.connectAsync(capture(requestSlot), any()) } answers {
+            val cb = secondArg<NetworkCallback>()
+            cb.call(connection)
+        }
+
+        val client = ConciergeConversationServiceClient(mockStateRepository, mockSessionManager)
+        client.sendFeedback(feedback)
+
+        val requestBody = String(requestSlot.captured.body, StandardCharsets.UTF_8)
+        assertTrue(requestBody.contains("\"id\":\"override-ecid\""))
+        assertTrue(requestBody.contains("\"Email\""))
+        assertTrue(requestBody.contains("\"id\":\"amy@example.com\""))
+        assertFalse(requestBody.contains("test-ecid"))
     }
 
     @Test

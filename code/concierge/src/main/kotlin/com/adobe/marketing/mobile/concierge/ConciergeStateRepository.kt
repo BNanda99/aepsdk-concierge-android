@@ -23,10 +23,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
+ * A map of identity namespace (for example "ECID" or "Email") to the list of identities in that
+ * namespace. Each identity is a map that must contain an `"id"` and may contain `"primary"` (Boolean).
+ * Mirrors the XDM `identityMap` structure.
+ */
+internal typealias ConciergeIdentityMap = Map<String, List<Map<String, Any>>>
+
+/**
  * Represents the state of the Concierge extension.
  *
- * @property experienceCloudId The Experience Cloud ID (ECID) from the EdgeIdentity extension.
- *                              Null indicates the ECID is not yet available or failed to load.
+ * @property identityMap The identityMap sent in requests, selected via [ConciergeStateRepository.setSelectedIdentityMap]
+ *                              (for example by a profile switcher). Null when no profile has been selected.
  * @property configurationReady Indicates whether the configuration is ready.
  * @property surfaces List of surface URLs set via the [ConciergeChat] surfaces parameter.
  * @property conciergeServer Server URL from concierge.server configuration.
@@ -34,7 +41,7 @@ import kotlinx.coroutines.flow.update
  * @property consent Consent value from the Consent extension. Default is "in".
  */
 internal data class ConciergeState(
-    val experienceCloudId: String? = null,
+    val identityMap: ConciergeIdentityMap? = null,
     val configurationReady: Boolean = false,
     val surfaces: List<String> = emptyList(),
     val conciergeServer: String? = null,
@@ -91,8 +98,27 @@ internal class ConciergeStateRepository internal constructor(
     }
 
     /**
-     * Updates the Experience Cloud ID.
-     * This should be called by the ConciergeExtension when ECID becomes available.
+     * Selects the identityMap to send in subsequent requests (for example from a profile switcher).
+     *
+     * Pass a non-empty identityMap to switch the active profile, or null/empty to clear it. The
+     * [ConciergeConversationServiceClient] reads [ConciergeState.identityMap] on its next request.
+     *
+     * @param identityMap The identityMap to send in requests, or null to clear.
+     */
+    fun setSelectedIdentityMap(identityMap: ConciergeIdentityMap?) {
+        val normalized = identityMap?.takeIf { it.isNotEmpty() }
+        _state.update { it.copy(identityMap = normalized) }
+        Log.debug(
+            ConciergeConstants.EXTENSION_NAME,
+            LOG_TAG,
+            "Selected identityMap set to namespaces: ${normalized?.keys}"
+        )
+    }
+
+    /**
+     * Captures the EdgeIdentity identityMap into [ConciergeState.identityMap] as the default
+     * identities. Called by the ConciergeExtension when the EdgeIdentity shared state changes.
+     * A profile selected via [setSelectedIdentityMap] overwrites this value.
      *
      * @param api The ExtensionApi instance
      * @param event The event that triggered the update
@@ -104,33 +130,43 @@ internal class ConciergeStateRepository internal constructor(
             event
         )
 
-        val identityMap =
+        val rawIdentityMap =
             DataReader.optTypedMap(
                 Any::class.java,
                 edgeIdentitySharedState,
                 ConciergeConstants.SharedState.EdgeIdentity.IDENTITY_MAP,
                 null
             )
-        val ecids: MutableList<MutableMap<String?, Any?>?> =
-            DataReader.optTypedListOfMap(
-                Any::class.java,
-                identityMap,
-                ConciergeConstants.SharedState.EdgeIdentity.ECID,
-                null
-            )
 
-        val ecidMap = ecids.firstOrNull()
+        val identityMap = toConciergeIdentityMap(rawIdentityMap) ?: return
 
-        val ecid =
-            DataReader.optString(ecidMap, ConciergeConstants.SharedState.EdgeIdentity.ID, null)
-                ?.takeIf { it.isNotEmpty() }
-        _state.update { it.copy(experienceCloudId = ecid) }
+        _state.update { it.copy(identityMap = identityMap) }
         Log.debug(
             ConciergeConstants.EXTENSION_NAME,
             LOG_TAG,
-            "Updated concierge state with ECID: $ecid"
-
+            "Updated identityMap from EdgeIdentity with namespaces: ${identityMap.keys}"
         )
+    }
+
+    /**
+     * Normalizes a raw EdgeIdentity identityMap (from shared state) into a [ConciergeIdentityMap],
+     * dropping null keys/values and empty entries. Returns null when there is nothing usable.
+     */
+    private fun toConciergeIdentityMap(raw: Map<String?, Any?>?): ConciergeIdentityMap? {
+        if (raw.isNullOrEmpty()) return null
+        val result = mutableMapOf<String, List<Map<String, Any>>>()
+        raw.forEach { (namespace, value) ->
+            if (namespace == null) return@forEach
+            val items = (value as? List<*>)?.mapNotNull { item ->
+                (item as? Map<*, *>)
+                    ?.entries
+                    ?.mapNotNull { (k, v) -> if (k is String && v != null) k to v else null }
+                    ?.toMap()
+                    ?.takeIf { it.isNotEmpty() }
+            }
+            if (!items.isNullOrEmpty()) result[namespace] = items
+        }
+        return result.takeIf { it.isNotEmpty() }
     }
 
     /**

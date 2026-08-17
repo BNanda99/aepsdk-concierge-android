@@ -24,6 +24,8 @@ import com.adobe.marketing.mobile.services.Log
 import com.adobe.marketing.mobile.services.NetworkCallback
 import com.adobe.marketing.mobile.services.NetworkRequest
 import com.adobe.marketing.mobile.services.ServiceProvider
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -133,6 +135,28 @@ internal class ConciergeConversationServiceClient(
     }.flowOn(Dispatchers.IO)
 
     /**
+     * Serializes the effective identityMap for [state] into a compact JSON object string.
+     *
+     * Uses the selected profile's identityMap when set, otherwise the EdgeIdentity-derived one.
+     * Returns "{}" when no identities are available.
+     */
+    private fun buildIdentityMapJson(state: ConciergeState): String {
+        val identityMap = state.identityMap
+        if (identityMap.isNullOrEmpty()) return "{}"
+        val root = JSONObject()
+        identityMap.forEach { (namespace, items) ->
+            val array = JSONArray()
+            items.forEach { item ->
+                val obj = JSONObject()
+                item.forEach { (key, value) -> obj.put(key, value) }
+                array.put(obj)
+            }
+            root.put(namespace, array)
+        }
+        return root.toString()
+    }
+
+    /**
      * Creates the JSON request body for the conversation request.
      */
     private fun createRequestBody(message: String, state: ConciergeState): String {
@@ -153,13 +177,7 @@ internal class ConciergeConversationServiceClient(
                         }
                     },
                     "xdm": {
-                        "identityMap": {
-                            "ECID": [
-                                {
-                                    "id": "${state.experienceCloudId}"
-                                }
-                            ]
-                        }
+                        "identityMap": ${buildIdentityMapJson(state)}
                     }
                 }
             ]
@@ -374,11 +392,7 @@ internal class ConciergeConversationServiceClient(
             }
         },
         "xdm": {
-            "identityMap": {
-                "ECID": [{
-                    "id": "${state.experienceCloudId}"
-                }]
-            },
+            "identityMap": ${buildIdentityMapJson(state)},
             "conversation": {
                 "feedback": {
                     "source": "end-user",

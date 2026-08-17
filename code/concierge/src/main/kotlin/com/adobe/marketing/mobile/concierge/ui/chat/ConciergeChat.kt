@@ -130,7 +130,7 @@ fun ConciergeChat(
     // Use passed-in surfaces for ready check when present (state may not have emitted yet this frame)
     val surfacesForReady = surfaces?.takeIf { it.isNotEmpty() } ?: conciergeState.surfaces
     val ready = conciergeState.configurationReady &&
-        conciergeState.experienceCloudId != null &&
+        conciergeState.identityMap?.isNotEmpty() == true &&
         surfacesForReady.isNotEmpty()
 
     if (ready) {

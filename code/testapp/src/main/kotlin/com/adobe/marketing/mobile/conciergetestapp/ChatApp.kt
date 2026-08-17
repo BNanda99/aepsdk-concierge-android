@@ -20,7 +20,7 @@ import com.adobe.marketing.mobile.concierge.Concierge
 class ChatApp : Application() {
     companion object {
         private const val LOG_TAG = "ChatApp"
-        private const val APP_ID = "staging/1b50a869c4a2/570831bce333/launch-bcc070a55cca-development"
+        private const val APP_ID = "staging/a0ff8cfcfb87/9d363ab429c8/launch-481f6ff16749-development"
     }
 
     override fun onCreate() {
