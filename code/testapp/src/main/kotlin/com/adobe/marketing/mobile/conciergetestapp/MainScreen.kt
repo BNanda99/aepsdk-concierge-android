@@ -56,7 +56,7 @@ fun MainScreen() {
     val context = LocalContext.current
 
     // Surfaces passed via ConciergeChat parameter
-    val surfaces = listOf( "web://brand-concierge-demo-stage.corp.ethos270-stage-va7.ethos.adobe.net/customer-pages/745F37C35E4B776E0A49421B@AdobeOrg/acom_m15/index.html")
+    val surfaces = listOf( "web://concierge-demo-stage.adobe.io/customer-pages/1F79539169209A100A49402F@AdobeOrg/sackings-demo/index.html")
     var selectedTheme by rememberSaveable { mutableStateOf("default") }
     
     // Theme options
