@@ -100,15 +100,39 @@ object ParkWhizBookingStore {
     }
 }
 
+internal fun handleParkWhizBooking(
+    payload: String,
+    record: (String) -> Boolean = ParkWhizBookingStore::record,
+    sendHandoff: (String, Map<String, Any>) -> Unit = { hint, fields ->
+        Concierge.sendDataHandoff(routingHint = hint, xdmFields = fields) { accepted, reason ->
+            if (!accepted) Log.w(TAG, "Parking booking status handoff failed: $reason")
+        }
+    }
+): String? {
+    val bookingId = parseBookingId(payload) ?: return null
+    if (!record(bookingId)) return null
+    sendHandoff(
+        "parking-booking-status",
+        mapOf(
+            "_sacramentokings" to mapOf(
+                "conciergeAction" to mapOf(
+                    "parkingHandoff" to mapOf("bookingId" to bookingId)
+                )
+            )
+        )
+    )
+    return bookingId
+}
+
 /** Full-screen WebView that hosts the ParkWhiz checkout and reports completed bookings. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ParkWhizBookingSheet(url: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val onBooked: (String) -> Unit = { payload ->
-        val bookingId = parseBookingId(payload)
         Log.d(TAG, "Booking callback: $payload")
-        if (bookingId != null && ParkWhizBookingStore.record(bookingId)) {
+        val bookingId = handleParkWhizBooking(payload)
+        if (bookingId != null) {
             Toast.makeText(context, "ParkWhiz booking: $bookingId", Toast.LENGTH_SHORT).show()
         }
     }
