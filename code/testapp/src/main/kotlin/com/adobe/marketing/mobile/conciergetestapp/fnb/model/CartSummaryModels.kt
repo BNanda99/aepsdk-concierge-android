@@ -24,8 +24,6 @@ data class CartSummaryUiModel(
     val orderId: String,
     /** tapin2 order `guid`; used only for the checkout page. */
     val guid: String?,
-    /** tapin2 `idLast3`, the short order code shown to the fan. */
-    val orderCode: String?,
     val venueName: String,
     val lines: List<CartSummaryLine>,
     val subtotalCents: Long,

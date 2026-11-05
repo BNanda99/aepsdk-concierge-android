@@ -87,9 +87,6 @@ fun CartSummaryContent(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            model.orderCode?.let {
-                Text("Order #$it", color = theme.colors.textSecondary, fontSize = 12.sp)
-            }
         }
 
         if (model.isEmpty) {

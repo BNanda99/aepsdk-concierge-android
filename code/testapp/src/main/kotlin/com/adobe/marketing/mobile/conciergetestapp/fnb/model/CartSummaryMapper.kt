@@ -27,7 +27,7 @@ import com.adobe.marketing.mobile.conciergetestapp.common.PayloadReads.objectSeq
  * update/remove), into [CartSummaryUiModel]. The payload is tapin2's response body, read with
  * tapin2's names (other fields, including `userInfo`, are ignored; BC should drop PII):
  *
- * `{ id, idLast3, guid, venueId, eventId, orderStatus, locationId, venue{id, title, taxRate,
+ * `{ id, guid, venueId, eventId, orderStatus, locationId, venue{id, title, taxRate,
  *    maxAlcoholPerOrder}, items[{id, locationId, product{id, title, imageUrl, isAlcohol}, quantity,
  *    pricePer, subtotal, taxAdded, total, modifier, modifiers, note}], distinctLocations[{id,
  *    title, section}], subtotalNet, taxAddedNet, feeAddedNet, discountNet, tipNet, totalNet,
@@ -40,7 +40,6 @@ object CartSummaryMapper {
 
     object Keys {
         const val ID = "id"
-        const val ORDER_CODE = "idLast3"
         const val GUID = "guid"
         const val VENUE_ID = "venueId"
         const val EVENT_ID = "eventId"
@@ -100,7 +99,6 @@ object CartSummaryMapper {
         return CartSummaryUiModel(
             orderId = orderId,
             guid = guid,
-            orderCode = PayloadText.sanitizeInline(order[Keys.ORDER_CODE]?.toString(), 12).ifEmpty { null },
             venueName = name(obj(order[Keys.VENUE])?.get(Keys.TITLE)),
             lines = lines.map { it.copy(removable = !isPaid) },
             subtotalCents = money(order[Keys.SUBTOTAL_NET]) ?: lineSum,

@@ -32,7 +32,6 @@ class CartSummaryMapperTest {
     fun `raw tapin2 cart_add response maps ids, lines, stand names, server totals, and the Review checkout URL`() {
         val cart = CartSummaryMapper.map(stageOrder(), CartOptions.STAGE)!!
         assertEquals("695685", cart.orderId)
-        assertEquals("685", cart.orderCode)
         assertEquals("68f4aac9-1b2b-49ed-ac78-92d7f26feb00", cart.guid)
         assertEquals("Golden 1 Concierge", cart.venueName)
         val line = cart.lines.single()
@@ -86,7 +85,6 @@ class CartSummaryMapperTest {
         val cart = CartSummaryMapper.map(element["entity_info"], CartOptions.STAGE, element["entityId"] as String)!!
 
         assertEquals("686123", cart.orderId)
-        assertEquals("123", cart.orderCode)
         assertEquals("Golden 1 Concierge", cart.venueName)
         val line = cart.lines.single()
         assertEquals("2064019", line.itemId)
