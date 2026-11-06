@@ -28,6 +28,7 @@ import com.adobe.marketing.mobile.conciergetestapp.cards.CardGate
 import com.adobe.marketing.mobile.conciergetestapp.cards.CardUnavailable
 import com.adobe.marketing.mobile.conciergetestapp.cards.SimpleCardContent
 import com.adobe.marketing.mobile.conciergetestapp.cards.SimpleCardRuntime
+import com.adobe.marketing.mobile.conciergetestapp.cards.isLatestCard
 import com.adobe.marketing.mobile.conciergetestapp.cards.mapElementOrNull
 import com.adobe.marketing.mobile.conciergetestapp.cards.savedCardState
 import com.adobe.marketing.mobile.conciergetestapp.fnb.FnbSessionContext
@@ -119,9 +120,10 @@ private fun locationRenderer(
             val sessionId = context["sessionId"] as? String
             val eventId = long(element["eventId"])?.takeIf { it >= 0 }
             val isStale = CardGate.from(context).isStale
+            val isLatest = isLatestCard(context)
             if (cardId != null) {
-                LaunchedEffect(cardId, sessionId, eventId, isStale) {
-                    if (!isStale) orders.locationsShown(cardId, sessionId, eventId)
+                LaunchedEffect(cardId, sessionId, eventId, isStale, isLatest) {
+                    if (!isStale) orders.locationsShown(cardId, sessionId, eventId, isLatest)
                 }
             }
             val state = savedCardState(context)
@@ -153,7 +155,7 @@ private fun menuRenderer(options: MenuOptions, actions: CardActionSender, orders
             MenuContent(
                 runtime,
                 CardGate.from(context),
-                active = cardId != null && orders.isActionableMenu(orderState, cardId, sessionId)
+                active = cardId != null && orders.isActionableMenu(orderState, cardId, sessionId, isLatestCard(context))
             )
         }
     }
@@ -171,7 +173,10 @@ private fun cartRenderer(options: CartOptions, actions: CardActionSender, orders
             val cardId = context["cardId"] as? String
             val sessionId = context["sessionId"] as? String
             val orderState by orders.state.collectAsState()
-            if (cardId != null) LaunchedEffect(cardId) { orders.cartShown(cardId, sessionId, model.orderId, model.isPaid) }
+            val isLatest = isLatestCard(context)
+            if (cardId != null) {
+                LaunchedEffect(cardId, isLatest) { orders.cartShown(cardId, sessionId, model.orderId, model.isPaid, isLatest) }
+            }
             val state = savedCardState(context)
             val runtime = remember(cardId, model) {
                 CartCardRuntime(

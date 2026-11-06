@@ -96,6 +96,9 @@ data class CardGate(val isBusy: Boolean = false, val isStale: Boolean = false) {
     }
 }
 
+/** Whether the SDK reports this card as the newest of its `type`; never infer it from display order. */
+fun isLatestCard(context: Map<String, Any?>): Boolean = context["isLatest"] == true
+
 /** This card's last `saveState` map from its renderer `context`, or null when it never saved. */
 fun savedCardState(context: Map<String, Any?>): Map<String, Any?>? =
     (context["state"] as? Map<*, *>)?.let { state ->

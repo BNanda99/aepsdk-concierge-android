@@ -66,7 +66,7 @@ class FnbActionSenderTest {
                 "entity_info" to tapinLocation())
         )!!
         assertTrue(updates.isEmpty())
-        orders.locationsShown("locations-1", "session-1", 12345L)
+        orders.locationsShown("locations-1", "session-1", 12345L, isLatest = true)
         SimpleCardRuntime(
             locations,
             fnbActionSender(FnbCardTypes.LOCATIONS, emptySet(), { false }, transport, postToMain = { it() })

@@ -16,17 +16,18 @@ import com.adobe.marketing.mobile.conciergetestapp.fnb.FnbXdm
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /**
  * App-owned F&B coordination across card instances; the SDK holds no menu or order state.
  *
- * - UI state (kept here, never sent): which menu is the newest, and so the only actionable one.
+ * - UI state (kept here, never sent): which menus checkout closed.
  * - Current and past order IDs are mirrored into `_sacramentokings.conciergeContext.fnbOrders` through
  *   [publishContext]; order-status tracking stays app-local.
  *
- * Cards register on first display. Order of first display stands in for transcript order. The
- * store is memory-only and resets when a newly displayed card belongs to another Concierge session,
+ * Which card is newest comes from the SDK's `isLatest` context flag, never from display order:
+ * Compose doesn't compose transcript rows in transcript order, so a card that displays later can
+ * be older. Cards register on first display. The store is memory-only and resets when a newly
+ * displayed card belongs to another Concierge session,
  * matching the SDK, which drops held XDM context for a new session. Checkout only archives the
  * order as `pending`: opening checkout proves neither payment nor fulfillment.
  */
@@ -37,7 +38,7 @@ class FnbOrderStore(
 ) {
 
     data class State(
-        val latestMenuCardId: String? = null,
+        val closedMenuCardIds: Set<String> = emptySet(),
         val currentOrderId: String? = null,
         val submittedOrderIds: List<String> = emptyList()
     ) {
@@ -53,6 +54,7 @@ class FnbOrderStore(
     private val lock = Any()
     private val stateFlow = MutableStateFlow(State())
     private val seenCardIds = HashSet<Pair<String, String?>>()
+    private val shownMenuCardIds = HashSet<String>()
     private val retiredSessionIds = HashSet<String>()
     private var sessionId: String? = null
 
@@ -61,41 +63,42 @@ class FnbOrderStore(
     val currentOrderId: String? get() = stateFlow.value.currentOrderId
 
     /**
-     * Whether the menu card [cardId] may take orders: it is the newest menu, or it is being displayed
-     * for the first time (it becomes the newest once [menuShown] runs).
+     * Whether the menu card [cardId] may take orders: it is the newest menu ([isLatest], from the
+     * card's SDK context), its session is still current, and checkout hasn't closed it.
      */
-    fun isActionableMenu(state: State, cardId: String, cardSessionId: String?): Boolean =
+    fun isActionableMenu(state: State, cardId: String, cardSessionId: String?, isLatest: Boolean): Boolean =
         synchronized(lock) {
-            cardSessionId !in retiredSessionIds &&
-                (state.latestMenuCardId == cardId || (cardId to cardSessionId) !in seenCardIds)
+            isLatest && cardSessionId !in retiredSessionIds && cardId !in state.closedMenuCardIds
         }
 
-    /** A menu card was displayed; the first display of a new card makes it the only actionable menu. */
+    /** A menu card was displayed; checkout closes every menu displayed before it. */
     fun menuShown(cardId: String, sessionId: String?) {
         synchronized(lock) {
-            if (!firstSeen(cardId, sessionId)) return
-            stateFlow.update { it.copy(latestMenuCardId = cardId) }
+            if (firstSeen(cardId, sessionId)) shownMenuCardIds += cardId
         }
     }
 
-    /** A locations response was first displayed; publish its game once, not from a card action. */
-    fun locationsShown(cardId: String, sessionId: String?, eventId: Long?) {
+    /**
+     * A locations response was displayed; publish its game once, and only from the newest
+     * locations card, so an older card that displays later can't overwrite it.
+     */
+    fun locationsShown(cardId: String, sessionId: String?, eventId: Long?, isLatest: Boolean) {
         val event = synchronized(lock) {
-            if (!firstSeen(cardId, sessionId)) return
+            if (!isLatest || !firstSeen(cardId, sessionId)) return
             eventId?.takeIf { it >= 0 }
         }
         event?.let(publishEventContext)
     }
 
     /**
-     * A cart card was displayed. On its first display, an unpaid order that wasn't checked out
-     * becomes the current order, so later adds go to it.
+     * A cart card was displayed. On the first display of the newest cart, an unpaid order that
+     * wasn't checked out becomes the current order, so later adds go to it.
      */
-    fun cartShown(cardId: String, sessionId: String?, orderId: String, isPaid: Boolean) {
+    fun cartShown(cardId: String, sessionId: String?, orderId: String, isPaid: Boolean, isLatest: Boolean) {
         val normalizedOrderId = orderId.trim()
         val numericOrderId = normalizedOrderId.toLongOrNull()?.takeIf { it >= 0 } ?: return
         val patch = synchronized(lock) {
-            if (!firstSeen(cardId, sessionId)) return
+            if (!isLatest || !firstSeen(cardId, sessionId)) return
             val current = stateFlow.value
             if (isPaid || normalizedOrderId.isEmpty() || current.isOrderSubmitted(normalizedOrderId) ||
                 current.currentOrderId != null) return
@@ -117,7 +120,7 @@ class FnbOrderStore(
             if (current.isOrderSubmitted(orderId) || current.currentOrderId != orderId) return
             val submitted = current.submittedOrderIds + orderId
             stateFlow.value = current.copy(
-                latestMenuCardId = null,
+                closedMenuCardIds = current.closedMenuCardIds + shownMenuCardIds,
                 currentOrderId = null,
                 submittedOrderIds = submitted
             )
@@ -133,6 +136,7 @@ class FnbOrderStore(
         synchronized(lock) {
             sessionId?.let(retiredSessionIds::add)
             stateFlow.value = State()
+            shownMenuCardIds.clear()
             onSessionChanged()
         }
     }
@@ -144,6 +148,7 @@ class FnbOrderStore(
         if (cardSessionId != null && cardSessionId != sessionId) {
             sessionId?.let(retiredSessionIds::add)
             stateFlow.value = State()
+            shownMenuCardIds.clear()
             sessionId = cardSessionId
             onSessionChanged()
         }

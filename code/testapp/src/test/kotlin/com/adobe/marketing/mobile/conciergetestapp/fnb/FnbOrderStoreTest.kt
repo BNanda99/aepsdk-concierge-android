@@ -23,24 +23,33 @@ class FnbOrderStoreTest {
     private val published = mutableListOf<Map<String, Any?>>()
     private val store = FnbOrderStore { published += it }
 
-    @Test
-    fun `a second menu makes the first read-only, and redisplaying the first doesn't take it back`() {
-        store.menuShown("menu-1", "s1")
-        assertTrue(store.isActionableMenu(store.state.value, "menu-1", "s1"))
+    private fun actionable(cardId: String, sessionId: String, isLatest: Boolean = true) =
+        store.isActionableMenu(store.state.value, cardId, sessionId, isLatest)
 
+    @Test
+    fun `only the latest menu is actionable, whatever order the menus display in`() {
+        // Compose can display the newer menu first; the SDK's isLatest decides, not display order.
         store.menuShown("menu-2", "s1")
         store.menuShown("menu-1", "s1")
 
-        assertFalse(store.isActionableMenu(store.state.value, "menu-1", "s1"))
-        assertTrue(store.isActionableMenu(store.state.value, "menu-2", "s1"))
-        assertTrue("a menu displayed for the first time is actionable", store.isActionableMenu(store.state.value, "menu-3", "s1"))
+        assertTrue(actionable("menu-2", "s1", isLatest = true))
+        assertFalse(actionable("menu-1", "s1", isLatest = false))
         assertTrue("rendering a menu doesn't change order context", published.isEmpty())
     }
 
     @Test
+    fun `a menu that becomes latest again after a rollback is actionable again`() {
+        store.menuShown("menu-1", "s1")
+        store.menuShown("menu-2", "s1")
+
+        assertFalse(actionable("menu-1", "s1", isLatest = false))
+        assertTrue(actionable("menu-1", "s1", isLatest = true))
+    }
+
+    @Test
     fun `the first unpaid cart becomes the current order and is published`() {
-        store.cartShown("cart-1", "s1", "98765", isPaid = false)
-        store.cartShown("cart-2", "s1", "98765", isPaid = false)
+        store.cartShown("cart-1", "s1", "98765", isPaid = false, isLatest = true)
+        store.cartShown("cart-2", "s1", "98765", isPaid = false, isLatest = true)
 
         assertEquals("98765", store.currentOrderId)
         assertEquals(
@@ -50,80 +59,103 @@ class FnbOrderStoreTest {
     }
 
     @Test
+    fun `an older cart can't claim the current order, whichever displays first`() {
+        store.cartShown("cart-old", "s1", "100", isPaid = false, isLatest = false)
+        store.cartShown("cart-new", "s1", "200", isPaid = false, isLatest = true)
+        store.cartShown("cart-old", "s1", "100", isPaid = false, isLatest = false)
+
+        assertEquals("200", store.currentOrderId)
+        assertEquals(1, published.size)
+    }
+
+    @Test
     fun `locations publish event context once per card and never on recomposition`() {
         val events = mutableListOf<Long>()
         val locationStore = FnbOrderStore(publishContext = {}, publishEventContext = events::add)
 
-        locationStore.locationsShown("locations-1", "s1", 12345L)
-        locationStore.locationsShown("locations-1", "s1", 12345L)
-        locationStore.locationsShown("locations-1", "s1", 99999L)
+        locationStore.locationsShown("locations-1", "s1", 12345L, isLatest = true)
+        locationStore.locationsShown("locations-1", "s1", 12345L, isLatest = true)
+        locationStore.locationsShown("locations-1", "s1", 99999L, isLatest = true)
 
         assertEquals(listOf(12345L), events)
+    }
+
+    @Test
+    fun `an older locations card that displays later doesn't overwrite the event`() {
+        val events = mutableListOf<Long>()
+        val locationStore = FnbOrderStore(publishContext = {}, publishEventContext = events::add)
+
+        locationStore.locationsShown("locations-new", "s1", 2L, isLatest = true)
+        locationStore.locationsShown("locations-old", "s1", 1L, isLatest = false)
+        assertEquals(listOf(2L), events)
+
+        // Rolled back to the older card: it is latest now, so it publishes on its next display.
+        locationStore.locationsShown("locations-old", "s1", 1L, isLatest = true)
+        assertEquals(listOf(2L, 1L), events)
     }
 
     @Test
     fun `location receipt leaves the following menu active across repeated state reads`() {
         val events = mutableListOf<Long>()
         val store = FnbOrderStore(publishEventContext = events::add, publishContext = {})
-        store.locationsShown("locations-1", "s1", 12345L)
+        store.locationsShown("locations-1", "s1", 12345L, isLatest = true)
         store.menuShown("menu-1", "s1")
 
         repeat(3) {
-            store.locationsShown("locations-1", "s1", 12345L)
+            store.locationsShown("locations-1", "s1", 12345L, isLatest = true)
             store.menuShown("menu-1", "s1")
-            assertEquals("menu-1", store.state.value.latestMenuCardId)
-            assertTrue(store.isActionableMenu(store.state.value, "menu-1", "s1"))
+            assertTrue(store.isActionableMenu(store.state.value, "menu-1", "s1", isLatest = true))
         }
         assertEquals(listOf(12345L), events)
     }
 
     @Test
     fun `paid, blank and redisplayed carts don't change the current order`() {
-        store.cartShown("cart-1", "s1", "1", isPaid = true)
-        store.cartShown("cart-2", "s1", " ", isPaid = false)
+        store.cartShown("cart-1", "s1", "1", isPaid = true, isLatest = true)
+        store.cartShown("cart-2", "s1", " ", isPaid = false, isLatest = true)
         assertNull(store.currentOrderId)
 
-        store.cartShown("cart-3", "s1", "2", isPaid = false)
-        store.cartShown("cart-1", "s1", "3", isPaid = false)
+        store.cartShown("cart-3", "s1", "2", isPaid = false, isLatest = true)
+        store.cartShown("cart-1", "s1", "3", isPaid = false, isLatest = true)
         assertEquals("2", store.currentOrderId)
     }
 
     @Test
     fun `non-numeric order identifiers are not published as fnbOrders`() {
-        store.cartShown("cart-1", "s1", "order-guid", isPaid = false)
+        store.cartShown("cart-1", "s1", "order-guid", isPaid = false, isLatest = true)
 
         assertNull(store.currentOrderId)
         assertTrue(published.isEmpty())
     }
 
     @Test
-    fun `a later old cart cannot replace the current order or close its menu`() {
+    fun `an old cart cannot replace the current order or close the newest menu`() {
         store.menuShown("menu-1", "s1")
-        store.cartShown("cart-1", "s1", "200", isPaid = false)
+        store.cartShown("cart-1", "s1", "200", isPaid = false, isLatest = true)
         store.menuShown("menu-2", "s1")
-        store.cartShown("cart-old", "s1", "100", isPaid = false)
+        store.cartShown("cart-old", "s1", "100", isPaid = false, isLatest = false)
 
         assertEquals("200", store.currentOrderId)
-        assertTrue(store.isActionableMenu(store.state.value, "menu-2", "s1"))
+        assertTrue(actionable("menu-2", "s1"))
 
         store.checkedOut("100")
 
         assertEquals("200", store.currentOrderId)
-        assertTrue(store.isActionableMenu(store.state.value, "menu-2", "s1"))
+        assertTrue(actionable("menu-2", "s1"))
         assertTrue(store.state.value.submittedOrderIds.isEmpty())
     }
 
     @Test
-    fun `checkout moves the current order to past orders and closes every menu`() {
+    fun `checkout moves the current order to past orders and closes every displayed menu`() {
         store.menuShown("menu-1", "s1")
-        store.cartShown("cart-1", "s1", "98765", isPaid = false)
+        store.cartShown("cart-1", "s1", "98765", isPaid = false, isLatest = true)
         published.clear()
 
         store.checkedOut("98765")
 
         assertNull(store.currentOrderId)
         assertEquals(listOf("98765"), store.state.value.submittedOrderIds)
-        assertFalse(store.isActionableMenu(store.state.value, "menu-1", "s1"))
+        assertFalse(actionable("menu-1", "s1"))
         assertEquals(
             listOf(
                 mapOf("_sacramentokings" to mapOf("conciergeContext" to mapOf("fnbOrders" to mapOf(
@@ -137,10 +169,10 @@ class FnbOrderStoreTest {
 
     @Test
     fun `a later order keeps earlier orders for status lookup`() {
-        store.cartShown("cart-1", "s1", "100", isPaid = false)
+        store.cartShown("cart-1", "s1", "100", isPaid = false, isLatest = true)
         store.checkedOut("100")
         store.menuShown("menu-2", "s1")
-        store.cartShown("cart-2", "s1", "200", isPaid = false)
+        store.cartShown("cart-2", "s1", "200", isPaid = false, isLatest = true)
         store.checkedOut("200")
 
         assertEquals(listOf("100", "200"), store.state.value.submittedOrderIds)
@@ -155,33 +187,34 @@ class FnbOrderStoreTest {
 
     @Test
     fun `a submitted order's cart never becomes current again, and reopening checkout changes nothing`() {
-        store.cartShown("cart-1", "s1", "100", isPaid = false)
+        store.cartShown("cart-1", "s1", "100", isPaid = false, isLatest = true)
         store.checkedOut("100")
         store.menuShown("menu-2", "s1")
         val before = published.size
 
-        store.cartShown("cart-2", "s1", "100", isPaid = false)
+        store.cartShown("cart-2", "s1", "100", isPaid = false, isLatest = true)
         store.checkedOut("100")
 
         assertNull(store.currentOrderId)
-        assertTrue("reopening checkout keeps the newer menu open", store.isActionableMenu(store.state.value, "menu-2", "s1"))
+        assertTrue("reopening checkout keeps the newer menu open", actionable("menu-2", "s1"))
         assertEquals(before, published.size)
     }
 
     @Test
     fun `a card from a new session resets the store`() {
         store.menuShown("menu-1", "s1")
-        store.cartShown("cart-1", "s1", "100", isPaid = false)
+        store.cartShown("cart-1", "s1", "100", isPaid = false, isLatest = true)
         store.checkedOut("100")
-        store.cartShown("cart-2", "s1", "200", isPaid = false)
+        store.cartShown("cart-2", "s1", "200", isPaid = false, isLatest = true)
 
         store.menuShown("menu-2", "s2")
 
         assertNull(store.currentOrderId)
         assertTrue(store.state.value.submittedOrderIds.isEmpty())
-        assertTrue(store.isActionableMenu(store.state.value, "menu-2", "s2"))
+        assertTrue(actionable("menu-2", "s2"))
         store.menuShown("menu-1", "s1")
-        assertTrue("an older session's card can't rebind the store", store.isActionableMenu(store.state.value, "menu-2", "s2"))
+        assertTrue("an older session's card can't rebind the store", actionable("menu-2", "s2"))
+        assertFalse(actionable("menu-1", "s1"))
     }
 
     @Test
@@ -190,8 +223,8 @@ class FnbOrderStoreTest {
 
         store.menuShown("menu-1", "s2")
 
-        assertTrue(store.isActionableMenu(store.state.value, "menu-1", "s2"))
-        assertFalse(store.isActionableMenu(store.state.value, "menu-1", "s1"))
+        assertTrue(actionable("menu-1", "s2"))
+        assertFalse(actionable("menu-1", "s1"))
     }
 
     @Test
@@ -201,11 +234,11 @@ class FnbOrderStoreTest {
             publishContext = { published += it },
             publishEventContext = events::add
         )
-        store.locationsShown("locations-1", "s1", 12345L)
-        store.cartShown("cart-1", "s1", "100", isPaid = false)
+        store.locationsShown("locations-1", "s1", 12345L, isLatest = true)
+        store.cartShown("cart-1", "s1", "100", isPaid = false, isLatest = true)
 
         store.identityReset()
-        store.locationsShown("locations-old", "s1", 98765L)
+        store.locationsShown("locations-old", "s1", 98765L, isLatest = true)
 
         assertNull(store.currentOrderId)
         assertTrue(store.state.value.submittedOrderIds.isEmpty())
