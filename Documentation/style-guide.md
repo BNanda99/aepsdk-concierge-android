@@ -130,6 +130,14 @@ The theme JSON file contains these top-level keys:
 | `components` | Non-CSS component overrides (currently feedback dialog only) |
 | `theme` | Visual styling tokens (CSS variables) |
 
+**Custom theme keys.** Unrecognized keys in the `theme` block with a nonempty name after `--`
+are retained as strings (up to 256 keys, values up to 512 characters) and exposed to your own
+composables through `ConciergeTheme.tokens?.cssVariables`, keyed with its `--` prefix.
+Keys and string values are trimmed; empty values are ignored. Numeric values are converted
+to strings; booleans, nulls, objects and arrays are ignored.
+Custom renderers can use this to read their own theme values
+(for example, `--my-card-accent-color`); the SDK does not interpret them.
+
 ---
 
 ## Value Formats
@@ -367,6 +375,11 @@ Feature toggles and interaction configuration.
 | `behavior.privacyNotice.title` | string | `"Privacy Notice"` | Heading shown above the notice body. Blank hides only the heading. When omitted, the SDK uses its `concierge_privacy_notice_title` string resource, which apps can localize. |
 | `behavior.privacyNotice.text` | string | `""` | Notice copy with optional `{Label}` placeholders; absent, empty, or whitespace-only text hides the notice. |
 | `behavior.privacyNotice.links` | array | `[]` | Link objects use the same `{ "text": "...", "url": "..." }` shape as disclaimer links. The first exact label match is used. A link whose URL is blank or malformed renders as plain, unlinked text. |
+| `behavior.privacyNotice.presentation` | string | `"inline"` | `"inline"` shows the full notice; `"collapsible"` starts collapsed and expands in place. |
+| `behavior.privacyNotice.summary` | string | `""` | Optional approved summary for the collapsed notice; blank uses a line-limited preview. |
+| `behavior.privacyNotice.collapsedMaxLines` | positive integer | `3` | Maximum preview lines when no summary is provided; short notices have no toggle. |
+| `behavior.privacyNotice.readMoreLabel` | string | `"Read more"` | Expansion label; omitted uses the localizable `concierge_privacy_notice_read_more` resource. |
+| `behavior.privacyNotice.showLessLabel` | string | `"Show less"` | Collapse label; omitted uses the localizable `concierge_privacy_notice_show_less` resource. |
 
 The notice is informational and does not block submission or require acknowledgment.
 It appears immediately before the first user-authored text message in a conversation,
@@ -379,6 +392,15 @@ Links open through the same handling as other chat links: the host app's link ca
 runs first, then App Links, an in-app web view for `http`/`https`, or the system handler
 for other schemes. `javascript`, `file`, `content`, `intent`, and `data` URLs are ignored.
 Taps are tracked as link clicks with origin `privacyNotice`.
+
+Use `"presentation": "collapsible"` to opt in without changing existing themes. Supply an
+approved `summary` to keep essential information visible; summaries are not truncated.
+Without a summary, the full text is previewed with an ellipsis only when it exceeds
+`collapsedMaxLines`. Expansion pushes subsequent messages down; collapse restores the compact
+card. There is no automatic animation or modal. Links become interactive in the full notice,
+using the same routing and tracking as inline notices. Invalid presentation values and
+nonpositive line limits fail decoding. Select **Demo Theme** in the test app to try sample copy;
+replace it with approved legal copy before release.
 
 > **Strict decoding:** unlike other `behavior` keys, a wrong type anywhere under
 > `privacyNotice` (for example `"title": 42` or `"links": {}`) fails theme decoding, so the
@@ -466,6 +488,11 @@ Before a vote, both thumbs use the concierge message text color. After a vote, t
     "privacyNotice": {
       "title": "Privacy Notice",
       "text": "Your messages are processed by {Company}.",
+      "presentation": "inline",
+      "summary": "",
+      "collapsedMaxLines": 3,
+      "readMoreLabel": "Read more",
+      "showLessLabel": "Show less",
       "links": [
         {"text": "Company", "url": "https://example.com/privacy"}
       ]
@@ -856,6 +883,7 @@ ratio; the lower threshold applies only when text meets WCAG's large-text criter
 | `--input-outline-gradient-angle` | `colors.input.outlineGradient` | `String` | `"180deg"` | Input border gradient direction |
 | `--input-focus-outline-color` | `colors.input.outlineFocus` | `String` | `"#1976D2"` | Focused input border color (hex) |
 | `--input-send-icon-color` | `colors.input.sendIconColor` | `String?` | `null` | Send button icon color (hex). Falls back to `onSurface` |
+| `--input-clear-icon-color` | `colors.input.clearIconColor` | `String?` | `null` | Clear (X) icon color beside send when text is entered. Falls back to the existing Material content tint. Set to `"#FFFFFF"` for a white icon on dark input backgrounds |
 | `--input-send-arrow-icon-color` | `colors.input.sendArrowIconColor` | `String?` | `null` | Arrow send button icon (arrow) color (hex). Falls back to `onPrimary`. Only used when `sendButtonStyle` is `"arrow"` |
 | `--input-send-arrow-background-color` | `colors.input.sendArrowBackgroundColor` | `String?` | `null` | Arrow send button circle background color (hex). Falls back to `sendIconColor` then `primary`. Only used when `sendButtonStyle` is `"arrow"` |
 | `--input-send-arrow-background-gradient-start-color` | `colors.input.sendArrowBackgroundGradient` | `String?` | `null` | Arrow send button circle gradient start color (hex). See [Gradients](#gradients). Only used when `sendButtonStyle` is `"arrow"` |
@@ -1079,6 +1107,14 @@ Non-CSS `components.feedback` overrides for the feedback dialog.
 | `components.feedback.negativeNotesEnabled` | boolean | `true` | Notes field visibility for negative-sentiment modal. Not applied in action mode. |
 
 > **Note:** The notes field is only available in `"modal"` display mode, gated by `components.feedback.positiveNotesEnabled` / `negativeNotesEnabled`.
+
+In modal mode, the form content scrolls while Submit and Cancel (when enabled) remain outside the scrolling area above the keyboard. Use the keyboard's Done action to dismiss it. Hosts using `ConciergeChatView` must configure `android:windowSoftInputMode="adjustResize"`.
+
+The modal blurs the chat behind it on Android 12 (API 31) and later, with a translucent themed backdrop. Older Android versions use a dimmed backdrop instead. Background chat controls are blocked while the modal is open. Tapping the backdrop dismisses the keyboard without closing the feedback form. Action mode is unchanged.
+
+Opening modal feedback clears focus from the chat composer and prevents keyboard navigation into background controls, including controls in populated message lists. In hosts with an Android Back dispatcher, Back dismisses feedback before closing the chat, including when both Cancel and Close are hidden. Vertical padding contracts on short layouts to preserve space for both the scrollable form and the action buttons.
+
+The full-screen chat dialog retains full-display window sizing and delegates system-bar and keyboard insets to the chat layout so the form and actions remain within the usable viewport in landscape. The backdrop and chat's empty-space tap handlers do not add keyboard-focus stops.
 
 ### Layout - Citations
 
@@ -1355,6 +1391,7 @@ Non-CSS `components.feedback` overrides for the feedback dialog.
     "--input-text-color": "#000000",
     "--input-focus-outline-color": "#1976D2",
     "--input-send-icon-color": "#000000",
+    "--input-clear-icon-color": null,
     "--input-send-arrow-icon-color": "#FFFFFF",
     "--input-send-arrow-background-color": "#1976D2",
     "--input-send-arrow-background-gradient-start-color": "#1976D2",
@@ -1530,6 +1567,11 @@ This section documents which properties are fully implemented, partially impleme
 | `behavior.privacyNotice.title` | ✅ | Optional heading; blank hides only the heading | `PrivacyNoticeView` |
 | `behavior.privacyNotice.text` | ✅ | First user-message transcript notice; blank body hides the card | `MessageList` → `PrivacyNoticeView` |
 | `behavior.privacyNotice.links` | ✅ | Brace placeholders share the disclaimer formatter; links use the shared chat link handling with origin `privacyNotice` | `PrivacyNoticeView` |
+| `behavior.privacyNotice.presentation` | ✅ | Opt-in inline expansion | `PrivacyNoticeView` |
+| `behavior.privacyNotice.summary` | ✅ | Authored collapsed summary | `PrivacyNoticeView` |
+| `behavior.privacyNotice.collapsedMaxLines` | ✅ | Overflow-aware preview | `PrivacyNoticeView` |
+| `behavior.privacyNotice.readMoreLabel` | ✅ | Localizable expansion label | `PrivacyNoticeView` |
+| `behavior.privacyNotice.showLessLabel` | ✅ | Localizable collapse label | `PrivacyNoticeView` |
 
 ### Disclaimer
 
@@ -1653,6 +1695,7 @@ These colors are used internally by composables but cannot be customized in them
 | `--input-outline-gradient-angle` | ✅ | Input border gradient direction | `ChatInputPanel` |
 | `--input-focus-outline-color` | ✅ | Input field focused border color | `ChatInputPanel` |
 | `--input-send-icon-color` | ✅ | Send button icon color (default style tint) | `SendButton` |
+| `--input-clear-icon-color` | ✅ | Clear (X) icon tint, with or without voice input enabled | `InputActionButtons` |
 | `--input-send-arrow-icon-color` | ✅ | Arrow send button icon color (arrow style only) | `SendButton` |
 | `--input-send-arrow-background-color` | ✅ | Arrow send button circle background (arrow style only) | `SendButton` |
 | `--input-send-arrow-background-gradient-start-color` | ✅ | Arrow send button circle gradient start color | `SendButton` |

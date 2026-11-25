@@ -12,6 +12,7 @@
 package com.adobe.marketing.mobile.concierge
 
 import com.adobe.marketing.mobile.Extension
+import com.adobe.marketing.mobile.concierge.cards.ConciergeCardRenderers
 import com.adobe.marketing.mobile.concierge.ui.chat.ConciergeChat
 import com.adobe.marketing.mobile.concierge.ui.chat.ConciergeChatView
 
@@ -56,6 +57,24 @@ object Concierge {
     }
 
     /**
+     * Renders `custom` response elements whose `rendererId` exactly matches [rendererId] with
+     * [renderer], inline in the transcript. Registering a `rendererId` again replaces its renderer
+     * for cards activated afterwards. Other element types keep their built-in rendering. Custom
+     * elements without a valid registered `rendererId`, or rejected during activation, are omitted
+     * and logged.
+     *
+     * Register once at app start; renderers are held for the life of the process, so they must not
+     * capture an `Activity` or a `View`. Cards talk back to Brand Concierge with [sendDataHandoff]
+     * and [updateXDMContext].
+     *
+     * @throws IllegalArgumentException if [rendererId] is blank.
+     */
+    @JvmStatic
+    fun registerCardRenderer(rendererId: String, renderer: ConciergeCardRenderer) {
+        ConciergeCardRenderers.register(rendererId, renderer)
+    }
+
+    /**
      * Applies an RFC 7396 JSON Merge Patch to XDM context included in every conversational turn.
      *
      * Context applies to normal chat messages and [sendDataHandoff] requests, but not feedback.
@@ -72,9 +91,11 @@ object Concierge {
      * separate reset API; use null-valued patch entries to remove specific values.
      *
      * @param fields a JSON-safe object to merge into the held XDM context. The top-level
-     * `identityMap` key is reserved for the SDK.
+     * `identityMap` key is reserved for the SDK. `placeContext` must be a map or null to remove it.
+     * The SDK overwrites `timestamp`, `placeContext.localTime` and `placeContext.localTimezoneOffset`.
      * @throws IllegalArgumentException if a value is not JSON-compatible, exceeds 20 nesting
-     * levels below a top-level field value (including cyclic input), or `identityMap` is used.
+     * levels below a top-level field value (including cyclic input), `identityMap` is used, or
+     * `placeContext` is neither a map nor null.
      */
     @JvmStatic
     fun updateXDMContext(fields: Map<String, Any?>) {
@@ -92,9 +113,10 @@ object Concierge {
      * @param routingHint a keyword the end user never sees, consumed by Brand Concierge's
      * phrase-based router (e.g. "successful-checkout"). Defaults to an empty string, which
      * forwards an empty service query for callers whose XDM fields already determine routing.
-     * @param xdmFields arbitrary XDM data merged into the root of the outbound XDM object; the
-     * SDK does not interpret its contents. Must be non-empty and JSON-safe (null is allowed inside
-     * lists), and must not use `identityMap` (or any other SDK-reserved top-level XDM key).
+     * @param xdmFields XDM data merged into the root of the outbound XDM object. Must be non-empty
+     * and JSON-safe (null is allowed inside lists), and must not use `identityMap` (or any other
+     * SDK-reserved top-level XDM key). When supplied, `placeContext` must be a map. The SDK
+     * overwrites `timestamp`, `placeContext.localTime` and `placeContext.localTimezoneOffset`.
      * @param localMessage text to render in chat when this handoff starts, distinct from the data
      * forwarded to Brand Concierge. The handoff is rejected with [ConciergeDataHandoffRejectReason.CHAT_IN_PROGRESS]
      * when a chat turn or another handoff is active or waiting; callers can retry after it completes.
